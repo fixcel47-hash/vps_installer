@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # =================================================================================
-# UNIFIED INSTALLER SCRIPT (v3.0.0 - Final)
+# UNIFIED INSTALLER SCRIPT (v3.1.0 - FIXED)
+# CORRECCIÓN PRINCIPAL: run_command modificado para eliminar spinner y ver output nativo.
 # Fusion:
-# 1. Logica SUDO, Deteccion OS, Instalacion Docker (del codigo proporcionado)
-# 2. Logica Swarm, Seguridad, Inicializacion Chatwoot (del installer.sh original)
-# 3. Logica Descarga y Sanitizacion (del combined_installer_v_2.sh)
+# 1. Logica SUDO, Deteccion OS, Instalacion Docker
+# 2. Logica Swarm, Seguridad, Inicializacion Chatwoot
+# 3. Logica Descarga y Sanitizacion
 # =================================================================================
 
-SCRIPT_VERSION="3.0.0-FINAL"
+set -euo pipefail
+
+SCRIPT_VERSION="3.1.0-FIXED"
 
 # Colores para mensajes
 RED='\033[0;31m'
@@ -44,7 +47,7 @@ DEFAULT_SUBDOMAINS=("proxy" "admin" "redis" "postgres" "n8" "evoapi" "chat")
 declare -a CUSTOM_SUBDOMAINS
 
 # -------------------------------
-# Funciones de Mensajes y Utilidades
+# Funciones de Mensajes y Utilidades (CORREGIDAS)
 # -------------------------------
 
 show_message() { echo -e "${BLUE}[INFO]${NC} $1"; }
@@ -54,17 +57,15 @@ show_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 register_temp_file() { TEMP_FILES+=("$1"); }
 generate_random_key() { tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32; }
 
-# [ELIMINAR FUNCION spinner() AQUI SI EXISTE]
-
-# Funcion de ejecucion de comandos simplificada (NUEVA VERSION)
+# Función de ejecución de comandos simplificada y transparente (VERSIÓN CORREGIDA)
 run_command() {
     local cmd="$1"
     local msg="$2"
     
     show_message "$msg"
     
-    # Logica para decidir si se usa SUDO
     local full_cmd
+    # Se usa sudo solo para comandos del sistema que requieren privilegios
     if [ -n "$SUDO" ] && [[ "$cmd" != docker* ]] && [[ "$cmd" != *"$SUDO"* ]]; then
         full_cmd="$SUDO $cmd"
     else
@@ -80,12 +81,11 @@ run_command() {
         return 0
     else
         local exit_status=$?
-        show_error "Comando fallo con codigo $exit_status: $full_cmd"
+        show_error "Comando falló con código $exit_status: $full_cmd"
         return $exit_status
     fi
 }
 
-# La funcion cleanup() y las trampas (traps) continuan abajo.
 # -----------------------------------------------------------
 
 # Funcion de limpieza (Mantenida)
@@ -148,53 +148,10 @@ EOF
 trap 'cleanup 1 false; exit 1' SIGHUP SIGINT SIGQUIT SIGTERM
 trap 'cleanup 1 false; exit 1' ERR
 
-# -------------------------------
-# Funciones de Mensajes y Utilidades
-# -------------------------------
-
-show_message() { echo -e "${BLUE}[INFO]${NC} $1"; }
-show_error() { echo -e "${RED}[ERROR]${NC} $1"; }
-show_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-show_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-register_temp_file() { TEMP_FILES+=("$1"); }
-generate_random_key() { tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32; }
-
-# Función de ejecución de comandos simplificada y transparente (VERSIÓN CORREGIDA)
-run_command() {
-    local cmd="$1"
-    local msg="$2"
-
-    show_message "$msg"
-
-    local full_cmd
-    # Se usa sudo solo para comandos del sistema que requieren privilegios
-    if [ -n "$SUDO" ] && [[ "$cmd" != docker* ]] && [[ "$cmd" != *"$SUDO"* ]]; then
-        full_cmd="$SUDO $cmd"
-    else
-        full_cmd="$cmd"
-    fi
-
-    # Muestra el comando exacto antes de ejecutarlo
-    echo -e "  -> Ejecutando: \033[0;33m$full_cmd\033[0m"
-
-    # Ejecuta el comando directamente, mostrando el output de forma nativa.
-    if $full_cmd; then
-        show_success "Completado: $msg"
-        return 0
-    else
-        local exit_status=$?
-        show_error "Comando falló con código $exit_status: $full_cmd"
-        return $exit_status
-    fi
-}
-
-# La funcion cleanup() y las trampas (traps) continuan abajo.
-# -----------------------------------------------------------
-
-cleanup() { #... (El resto del script continúa aquí)
+# La función run_command antigua que estaba aquí ha sido ELIMINADA y reemplazada por la versión simple de arriba.
 
 # -------------------------------
-# Funciones de Instalacion de Dependencias, Seguridad y Redes (MODIFICADAS)
+# Funciones de Instalacion de Dependencias, Seguridad y Redes
 # -------------------------------
 
 configure_docker_logs() {
@@ -213,7 +170,7 @@ EOF
     run_command "systemctl restart docker" "Reiniciando Docker para aplicar configuracion..."
 }
 
-# Funcion de instalacion de dependencias (INTEGRANDO la logica del usuario)
+# Funcion de instalacion de dependencias
 install_dependencies() {
     show_message "Verificando e instalando dependencias (curl, wget, jo, perl, Docker)..."
     
@@ -222,7 +179,7 @@ install_dependencies() {
     run_command "apt-get install -y ca-certificates curl gnupg lsb-release apt-transport-https software-properties-common jo perl" "Instalando utilidades y requisitos..."
 
     if ! command -v docker &> /dev/null; then
-        echo "?? Instalando Docker..."
+        echo "🐳 Instalando Docker..."
         
         # Uso de $SUDO para comandos que escriben en /etc
         $SUDO install -m 0755 -d /etc/apt/keyrings
@@ -242,18 +199,16 @@ $(lsb_release -cs) stable" | $SUDO tee /etc/apt/sources.list.d/docker.list > /de
     run_command "systemctl enable docker" "Habilitando servicio Docker..."
     run_command "systemctl start docker" "Iniciando servicio Docker..."
     
-    # Configurar logs (retenido del script original)
+    # Configurar logs
     configure_docker_logs
     
     show_success "Dependencias instaladas/verificadas."
 }
 
-# initialize_docker_swarm, install_server_tools, create_docker_networks (Se mantienen)
 initialize_docker_swarm() {
     show_message "Verificando estado de Docker Swarm..."
     if ! docker info 2>/dev/null | grep -q "Swarm: active"; then
         show_message "Iniciando Docker Swarm..."
-        # Se usa SUDO si es necesario, pero Docker ya esta instalado y el usuario deberia ser parte del grupo docker
         run_command "docker swarm init --advertise-addr \$(hostname -I | awk '{print \$1}')" "Inicializando Docker Swarm..."
         show_success "Docker Swarm inicializado correctamente"
     else
@@ -268,7 +223,7 @@ install_server_tools() {
     
     show_message "Instalando RKHunter..."
     run_command "echo 'postfix postfix/main_mailer_type select No configuration' | debconf-set-selections && apt-get install -y rkhunter" "Instalando RKHunter..."
-    # ... (Resto de la configuracion de seguridad)
+    
     local config_file="/etc/rkhunter.conf"
     show_message "Configurando RKHunter..."
     run_command "$SUDO sed -i 's/^UPDATE_MIRRORS=.*/UPDATE_MIRRORS=1/' \"$config_file\" && \
@@ -289,7 +244,7 @@ install_server_tools() {
 
 create_docker_networks() {
     show_message "Creando redes Docker para Swarm..."
-    # ... (codigo de creacion de redes)
+    
     if ! docker network ls 2>/dev/null | grep -q "frontend"; then
         run_command "docker network create --driver overlay --attachable frontend" "Creando red frontend..."
         show_success "Red 'frontend' creada"
@@ -306,14 +261,53 @@ create_docker_networks() {
 }
 
 # -------------------------------
-# Funciones de Descarga, Sanitizacion, Chatwoot e Instalacion (Mantenidas)
+# Funciones de Descarga y Sanitizacion
 # -------------------------------
 
-# download_file, sanitize_yaml, create_volume_directories, initialize_chatwoot_database, install_docker_tool
-# (Estas funciones son identicas a la version 2.1.0, adaptadas para usar $SUDO en mkdir -p si es necesario)
-# ... [Codigo omitido por brevedad, pero las funciones estan en el script final] ...
+download_file() {
+    local url="$1" file="$2"
+    if [[ -z "$url" ]]; then show_warning "URL vacia para $file"; return 1; fi
+    show_message "Descargando $url -> $file"
+    
+    local download_cmd
+    if command -v curl >/dev/null 2>&1; then
+        download_cmd="curl --fail --location --max-time ${DOWNLOAD_TIMEOUT} -sS '$url' -o '$file'"
+    elif command -v wget >/dev/null 2>&1; then
+        download_cmd="wget -q --timeout=${DOWNLOAD_TIMEOUT} -O '$file' '$url'"
+    else
+        show_error "Ni curl ni wget estan disponibles para la descarga."; return 3
+    fi
+    
+    if ! eval "$download_cmd"; then
+        show_error "Fallo al descargar $url"; return 2
+    fi
+    show_success "Descargado: $file"
+    return 0
+}
 
-# create_volume_directories (Asegura uso de $SUDO)
+SENSITIVE_PATTERNS=(
+  "API_TOKEN" "API_KEY" "SECRET" "PASSWORD" "DB_PASSWORD"
+  "JWT" "ACCESS_TOKEN" "AUTH_TOKEN" "TOKEN:" "token:"
+)
+
+sanitize_yaml() {
+    local infile="$1" outfile="$2"
+    
+    cp -f "$infile" "${infile}.raw"
+    cp -f "$infile" "$outfile"
+    
+    show_message "Saneando $outfile de secretos evidentes..."
+
+    for pat in "${SENSITIVE_PATTERNS[@]}"; do
+        local escaped_pat=$(echo "$pat" | sed 's/[][\/.^$*+?(){}|-]/\\&/g')
+        perl -0777 -pi -e "s/(${escaped_pat}\s*[:=]\s*)(\S+)/\1<REPLACE_ME>/ig" "$outfile" || true
+    done
+
+    perl -0777 -pi -e 's/([A-Z_]+)\s*[:=]\s*([A-Za-z0-9_\-\.\/]{32,})/\1: <REPLACE_ME>/g' "$outfile" || true
+
+    show_success "Saneado: $outfile (copia original en ${infile}.raw)"
+}
+
 create_volume_directories() {
     local stack_file=$1
     local tool_name=$2
@@ -333,41 +327,223 @@ create_volume_directories() {
     done
 }
 
+initialize_chatwoot_database() {
+    local tool_name="chatwoot"
+    local subdomain=$1
+    
+    show_message "Inicializando base de datos de Chatwoot..."
+    
+    local init_stack_file="/tmp/chatwoot-init-stack.yml"
+    
+    cat > "$init_stack_file" << EOF
+version: '3.8'
+
+services:
+  chatwoot-postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      - POSTGRES_DB=chatwoot
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=$COMMON_PASSWORD
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+      
+    volumes:
+      - chatwoot_postgres:/var/lib/postgresql/data
+      
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+    networks:
+      - backend
+
+  chatwoot-init:
+    image: chatwoot/chatwoot:latest
+    command: ["bundle", "exec", "rails", "db:chatwoot_prepare"]
+    environment:
+      - POSTGRES_HOST=chatwoot-postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DATABASE=chatwoot
+      - POSTGRES_USERNAME=postgres
+      - POSTGRES_PASSWORD=$COMMON_PASSWORD
+      - REDIS_URL=redis://redis-server:6379/4
+      - SECRET_KEY_BASE=$SECRET_KEY
+      - RAILS_ENV=production
+      - NODE_ENV=production
+    networks:
+      - backend
+    depends_on:
+      - chatwoot-postgres
+    deploy:
+      restart_policy:
+        condition: none
+      placement:
+        constraints:
+          - node.role == manager
+
+networks:
+  backend:
+    external: true
+
+volumes:
+  chatwoot_postgres:
+    driver: local
+    driver_opts:
+      type: none
+      device: /home/docker/chatwoot/postgres_data
+      o: bind
+EOF
+    
+    register_temp_file "$init_stack_file"
+    
+    run_command "docker stack deploy -c \"$init_stack_file\" chatwoot-init" "Desplegando stack temporal para inicializar DB..."
+    
+    show_message "Esperando a que el contenedor de inicializacion de Chatwoot termine (maximo 5 minutos)..."
+    
+    local init_service_name="chatwoot-init_chatwoot-init"
+    local max_wait=300
+    local waited=0
+    local init_status=""
+
+    while [ $waited -lt $max_wait ]; do
+        # Busca el estado del servicio, filtrando por el estado final (Shutdown)
+        init_status=$(docker service ps -q "$init_service_name" --filter "desired-state=shutdown" --format "{{.CurrentState}}" 2>/dev/null | head -n 1)
+        
+        if [[ "$init_status" == *"Complete"* ]]; then
+            show_success "Contenedor de inicialización de Chatwoot finalizado exitosamente."
+            break
+        fi
+
+        if [[ "$init_status" == *"Failed"* ]]; then
+            show_error "La inicialización de la DB de Chatwoot falló. Verifique logs."
+            docker service logs "$init_service_name" 2>/dev/null | tail -20
+            docker stack rm chatwoot-init >/dev/null 2>&1
+            sleep 15
+            return 1
+        fi
+
+        sleep 10
+        waited=$((waited + 10))
+        
+        if [ $((waited % 60)) -eq 0 ]; then
+            show_message "Inicializando DB... ($waited/$max_wait segundos)"
+        fi
+    done
+
+    if [ $waited -ge $max_wait ]; then
+        show_error "Timeout: El contenedor de inicialización de la base de datos de Chatwoot no terminó a tiempo."
+        docker service logs "$init_service_name" 2>/dev/null | tail -20
+        docker stack rm chatwoot-init >/dev/null 2>&1
+        sleep 15
+        return 1
+    fi
+
+    show_message "Limpiando stack de inicializacion..."
+    docker stack rm chatwoot-init >/dev/null 2>&1
+    sleep 15
+    
+    show_success "Base de datos de Chatwoot inicializada correctamente"
+    return 0
+}
+
+install_docker_tool() {
+    local tool_name=$1
+    local default_subdomain=$2
+    local tool_index=$3
+
+    show_message "Configurando $tool_name..."
+    local tool_dir="$DOCKER_DIR/$tool_name"
+    run_command "mkdir -p \"$tool_dir\"" "Creando directorio de la herramienta..."
+    
+    cd "$tool_dir" || {
+        show_error "No se pudo acceder al directorio $tool_dir"
+        exit 1
+    }
+    
+    read -p "Ingrese el subdominio para $tool_name [$default_subdomain]: " SUBDOMAIN
+    SUBDOMAIN=${SUBDOMAIN:-$default_subdomain}
+    
+    CUSTOM_SUBDOMAINS[$tool_index]=$SUBDOMAIN
+    
+    local subdomain_file="$tool_dir/.subdomain"
+    echo "$SUBDOMAIN" > "$subdomain_file"
+    register_temp_file "$subdomain_file"
+    
+    local stack_url="${STACK_URLS[$tool_name]}"
+    local stack_file="$tool_dir/$tool_name-stack.yml"
+    local deploy_file="$tool_dir/$tool_name-deploy.yml"
+
+    if ! download_file "$stack_url" "$stack_file"; then
+        show_error "No se pudo descargar el archivo de stack para $tool_name"
+        exit 1
+    fi
+
+    sanitize_yaml "$stack_file" "$deploy_file"
+    register_temp_file "$deploy_file"
+    
+    # Reemplazo de variables
+    sed -i "s|<REPLACE_ME>|$COMMON_PASSWORD|g" "$deploy_file"
+    sed -i "s|REPLACE_PASSWORD|$COMMON_PASSWORD|g" "$deploy_file"
+    sed -i "s|REPLACE_SUBDOMAIN|$SUBDOMAIN|g" "$deploy_file"
+    sed -i "s|REPLACE_DOMAIN|$BASE_DOMAIN|g" "$deploy_file"
+    sed -i "s|REPLACE_SECRET_KEY|$SECRET_KEY|g" "$deploy_file"
+
+    create_volume_directories "$deploy_file" "$tool_name"
+    
+    if [ "$tool_name" = "chatwoot" ]; then
+        show_message "Chatwoot detectado - se requiere inicializacion de base de datos"
+        if ! initialize_chatwoot_database "$SUBDOMAIN"; then
+            show_error "Error al inicializar la base de datos de Chatwoot"
+            exit 1
+        fi
+    fi
+    
+    show_message "Desplegando $tool_name en Docker Swarm..."
+    run_command "docker stack deploy -c \"$deploy_file\" $tool_name" "Desplegando $tool_name..."
+    
+    cd "$DOCKER_DIR" || {
+        show_error "No se pudo volver al directorio principal $DOCKER_DIR"
+        exit 1
+    }
+}
 
 # -------------------------------
-# Flujo Principal (MODIFICADO para usar el chequeo inicial)
+# Flujo Principal
 # -------------------------------
 
 # Bloque de chequeo inicial (EJECUTADO ANTES DE main)
 echo "=== Instalador Universal ==="
 echo "Iniciando verificacion del entorno..."
 
-# Detectar si el script tiene permisos root (DEL CODIGO DEL USUARIO)
+# Detectar si el script tiene permisos root
 if [ "$(id -u)" -ne 0 ]; then
     if ! command -v sudo >/dev/null 2>&1; then
-        show_error "? No eres root y 'sudo' no esta instalado. Instalalo o ejecuta como root."
+        show_error "❌ No eres root y 'sudo' no esta instalado. Instalalo o ejecuta como root."
         exit 1
     fi
     SUDO="sudo"
-    show_message "?? Ejecutando con sudo..."
+    show_message "➡️ Ejecutando con sudo..."
 else
     SUDO=""
-    show_message "?? Ejecutando como root..."
+    show_message "➡️ Ejecutando como root..."
 fi
 
-# Verificar conexion a internet (usando curl, mas robusto para firewalls)
+# Verificar conexion a internet
 if ! curl -s --head --request GET -m 5 https://google.com >/dev/null 2>&1; then
-    echo "? No hay conexion a Internet. Revisa tu red antes de continuar."
+    show_error "❌ No hay conexion a Internet. Revisa tu red antes de continuar."
     exit 1
 fi
 
-# Detectar sistema operativo (DEL CODIGO DEL USUARIO)
+# Detectar sistema operativo
 if [ -f /etc/os-release ]; then
     . /etc/os-release
     OS=$ID
     show_message "Sistema detectado: $PRETTY_NAME"
 else
-    show_error "? No se pudo detectar el sistema operativo."
+    show_error "❌ No se pudo detectar el sistema operativo."
     exit 1
 fi
 
@@ -423,7 +599,6 @@ EOL
     INSTALL_ORDER=("traefik" "redis" "postgres" "portainer" "n8n" "evoapi" "chatwoot")
     
     for tool_name in "${INSTALL_ORDER[@]}"; do
-        # ... (logica de busqueda de subdominio)
         default_subdomain=""
         tool_index=-1
         for j in "${!AVAILABLE_TOOLS[@]}"; do
@@ -446,7 +621,7 @@ EOL
     done
 
     # 4. Mostrar URLs y finalizar
-    show_success "!Instalacion completada!"
+    show_success "¡Instalacion completada!"
     echo ""
     echo "Accede a tus servicios en los siguientes URLs (usando HTTPS si Traefik esta configurado correctamente):"
     
