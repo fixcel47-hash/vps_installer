@@ -54,11 +54,44 @@ show_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 register_temp_file() { TEMP_FILES+=("$1"); }
 generate_random_key() { tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32; }
 
+# [ELIMINAR FUNCIÓN spinner() AQUÍ SI EXISTE]
+
+# Función de ejecución de comandos simplificada (NUEVA VERSIÓN)
+run_command() {
+    local cmd="$1"
+    local msg="$2"
+    
+    show_message "$msg"
+    
+    # Lógica para decidir si se usa SUDO
+    local full_cmd
+    if [ -n "$SUDO" ] && [[ "$cmd" != docker* ]] && [[ "$cmd" != *"$SUDO"* ]]; then
+        full_cmd="$SUDO $cmd"
+    else
+        full_cmd="$cmd"
+    fi
+    
+    # Muestra el comando exacto antes de ejecutarlo
+    echo -e "  -> Ejecutando: \033[0;33m$full_cmd\033[0m"
+
+    # Ejecuta el comando directamente, mostrando el output de forma nativa.
+    if $full_cmd; then
+        show_success "Completado: $msg"
+        return 0
+    else
+        local exit_status=$?
+        show_error "Comando falló con código $exit_status: $full_cmd"
+        return $exit_status
+    fi
+}
+
+# La función cleanup() y las trampas (traps) continúan abajo.
+# -----------------------------------------------------------
+
 # Función de limpieza (Mantenida)
 cleanup() {
-    # ... (código de limpieza idéntico a la versión 2.1.0)
     local exit_code=$1
-    local delete_stacks=${2:-false}
+    local delete_stacks=${2:-false} 
     
     show_message "Realizando limpieza antes de salir..."
     
