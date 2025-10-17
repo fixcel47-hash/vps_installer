@@ -148,58 +148,50 @@ EOF
 trap 'cleanup 1 false; exit 1' SIGHUP SIGINT SIGQUIT SIGTERM
 trap 'cleanup 1 false; exit 1' ERR
 
-# Funcion para animacion de espera y ejecucion de comandos
+# -------------------------------
+# Funciones de Mensajes y Utilidades
+# -------------------------------
+
+show_message() { echo -e "${BLUE}[INFO]${NC} $1"; }
+show_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+show_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
+show_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
+register_temp_file() { TEMP_FILES+=("$1"); }
+generate_random_key() { tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32; }
+
+# Función de ejecución de comandos simplificada y transparente (VERSIÓN CORREGIDA)
 run_command() {
-    # ... (codigo de run_command que usa $SUDO internamente al ejecutar el comando)
     local cmd="$1"
     local msg="$2"
-    
+
     show_message "$msg"
-    
-    local log_file="/tmp/cmd_output_$$_$(date +%s)"
-    
-    # Prepend SUDO to the command if set
+
     local full_cmd
-    if [ -n "$SUDO" ] && [[ "$cmd" != *"$SUDO"* ]]; then
+    # Se usa sudo solo para comandos del sistema que requieren privilegios
+    if [ -n "$SUDO" ] && [[ "$cmd" != docker* ]] && [[ "$cmd" != *"$SUDO"* ]]; then
         full_cmd="$SUDO $cmd"
     else
         full_cmd="$cmd"
     fi
-    
-    eval "$full_cmd" > "$log_file" 2>&1 &
-    local cmd_pid=$!
-    
-    # ... spinner logic ... (simplified for output)
-    local pid=$cmd_pid
-    local delay=0.1
-    local spinstr='|/-\'
-    
-    echo -n "Procesando "
-    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
-        local temp=${spinstr#?}
-        printf " [%c]  " "$spinstr"
-        local spinstr=$temp${spinstr%"$temp"}
-        sleep $delay
-        printf "\b\b\b\b\b\b"
-    done
-    printf "    \b\b\b\b"
-    echo -e "${GREEN}[COMPLETADO]${NC}"
-    # ... end spinner logic
 
-    wait $cmd_pid
-    local exit_status=$?
-    
-    if [ $exit_status -ne 0 ]; then
-        show_error "Comando fallo: $full_cmd"
-        show_message "Ultimas 10 lineas de log de error:"
-        tail -n 10 "$log_file"
-        rm -f "$log_file"
+    # Muestra el comando exacto antes de ejecutarlo
+    echo -e "  -> Ejecutando: \033[0;33m$full_cmd\033[0m"
+
+    # Ejecuta el comando directamente, mostrando el output de forma nativa.
+    if $full_cmd; then
+        show_success "Completado: $msg"
+        return 0
+    else
+        local exit_status=$?
+        show_error "Comando falló con código $exit_status: $full_cmd"
         return $exit_status
     fi
-    
-    rm -f "$log_file"
-    return 0
 }
+
+# La funcion cleanup() y las trampas (traps) continuan abajo.
+# -----------------------------------------------------------
+
+cleanup() { #... (El resto del script continúa aquí)
 
 # -------------------------------
 # Funciones de Instalacion de Dependencias, Seguridad y Redes (MODIFICADAS)
