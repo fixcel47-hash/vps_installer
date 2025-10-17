@@ -552,11 +552,27 @@ main() {
     show_message "Iniciando la instalacion automatizada de herramientas Docker (v$SCRIPT_VERSION)..."
     
     # 1. Configuracion inicial
-    run_command "mkdir -p \"$DOCKER_DIR\"" "Creando directorio principal de Docker..."
-    cd "$DOCKER_DIR" || { 
-        show_error "No se pudo acceder al directorio $DOCKER_DIR"
+    local DOCKER_DIR="/home/docker" # Aseguramos la variable localmente
+
+    show_message "Creando y accediendo al directorio principal de Docker: $DOCKER_DIR"
+    
+    # Intenta crear el directorio. Como se ejecuta como root, no deberia haber problema.
+    if $SUDO mkdir -p "$DOCKER_DIR"; then
+        show_success "Directorio $DOCKER_DIR creado o ya existe."
+    else
+        show_error "Fallo al crear el directorio $DOCKER_DIR."
         exit 1
-    }
+    fi
+    
+    # Intenta cambiar el directorio. Si falla, el script termina.
+    if cd "$DOCKER_DIR"; then
+        show_success "Acceso exitoso al directorio de despliegue."
+    else
+        show_error "No se pudo acceder al directorio $DOCKER_DIR después de crearlo. Verifique permisos."
+        exit 1
+    fi
+    
+    show_message "Configuracion de credenciales"
 
     show_message "Configuracion de credenciales"
     read -p "Ingrese la contrasena comun para todas las herramientas: " COMMON_PASSWORD
