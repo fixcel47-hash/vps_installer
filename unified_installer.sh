@@ -330,9 +330,9 @@ else
     show_message "➡️ Ejecutando como root..."
 fi
 
-# Verificar conexión a internet (DEL CÓDIGO DEL USUARIO)
-if ! ping -c 1 -W 3 google.com >/dev/null 2>&1; then
-    show_error "⚠️ No hay conexión a Internet. Revisa tu red antes de continuar."
+# Verificar conexión a internet (usando curl, más robusto para firewalls)
+if ! curl -s --head --request GET -m 5 https://google.com >/dev/null 2>&1; then
+    echo "❌ No hay conexión a Internet. Revisa tu red antes de continuar."
     exit 1
 fi
 
