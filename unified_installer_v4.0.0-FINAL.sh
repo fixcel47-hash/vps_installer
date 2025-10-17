@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # =================================================================================
 # UNIFIED INSTALLER SCRIPT (v4.0.0-FINAL)
-# Correcciones:
+# Finalizado y Corregido.
+# - Integración de lógica SUDO y detección OS.
 # - Sustitución de 'ping' por 'curl' para la verificación de conexión.
 # - Eliminación de la función 'spinner' para mostrar la salida de apt-get en tiempo real.
-# - Manejo de SUDO en todas las operaciones.
+# - Instalación de herramientas de seguridad (UFW, Fail2Ban, RKHunter).
 # =================================================================================
 
 set -euo pipefail
@@ -27,7 +28,7 @@ TEMP_FILES=()
 DOWNLOAD_TIMEOUT=30
 
 # -------------------------------
-# Configuración de URLs para descarga de Stacks
+# Configuración de URLs (Ejemplo)
 # -------------------------------
 declare -gA STACK_URLS=(
     [chatwoot]="https://github.com/user-attachments/files/22956465/chatwoot-stack.yml"
@@ -63,7 +64,6 @@ run_command() {
     
     show_message "$msg"
     
-    # Lógica para decidir si se usa SUDO
     local full_cmd
     # Se usa sudo solo para comandos del sistema que requieren privilegios
     if [ -n "$SUDO" ] && [[ "$cmd" != docker* ]] && [[ "$cmd" != *"$SUDO"* ]]; then
@@ -167,7 +167,6 @@ EOF
 install_dependencies() {
     show_message "Verificando e instalando dependencias (curl, wget, jo, perl, Docker)..."
     
-    # Instalación de dependencias básicas y paquetes necesarios para el script (jo, perl)
     run_command "apt-get update -y" "Actualizando lista de paquetes..."
     run_command "apt-get install -y ca-certificates curl gnupg lsb-release apt-transport-https software-properties-common jo perl" "Instalando utilidades y requisitos..."
 
@@ -250,7 +249,7 @@ create_docker_networks() {
 }
 
 # -------------------------------
-# Funciones de Descarga y Sanitización
+# Funciones de Descarga y Sanitización (Mantienen la lógica de la versión anterior)
 # -------------------------------
 
 download_file() {
@@ -316,17 +315,15 @@ create_volume_directories() {
 }
 
 initialize_chatwoot_database() {
-    # [La lógica completa de initialize_chatwoot_database se mantiene sin cambios, 
-    # asumiendo que el script completo tiene esta función para no extender demasiado el código.]
     local tool_name="chatwoot"
     local subdomain=$1
     
     show_message "Inicializando base de datos de Chatwoot..."
-    
     show_message "Verificando disponibilidad de Redis. Se asume que 'redis' ya está desplegado."
     
     local init_stack_file="/tmp/chatwoot-init-stack.yml"
     
+    # El contenido YAML para inicializar Chatwoot (requiere POSTGRES y REDIS funcionales)
     cat > "$init_stack_file" << EOF
 version: '3.8'
 
@@ -400,6 +397,7 @@ EOF
     local waited=0
     local init_status=""
 
+    # Se usa docker service ps para monitorear el estado del servicio temporal de inicialización
     while [ $waited -lt $max_wait ]; do
         init_status=$(docker service ps -q "$init_service_name" --filter "desired-state=shutdown" --format "{{.CurrentState}}" | head -n 1)
         
@@ -435,6 +433,8 @@ install_docker_tool() {
     show_message "Configurando $tool_name..."
     local tool_dir="$DOCKER_DIR/$tool_name"
     run_command "mkdir -p \"$tool_dir\"" "Creando directorio de la herramienta..."
+    
+    # Se debe hacer 'cd' después de crear el directorio, no antes.
     cd "$tool_dir" || {
         show_error "No se pudo acceder al directorio $tool_dir"
         exit 1
@@ -494,6 +494,7 @@ install_docker_tool() {
 echo "=== Instalador Universal ==="
 echo "Iniciando verificación del entorno..."
 
+# Detectar SUDO y permisos
 if [ "$(id -u)" -ne 0 ]; then
     if ! command -v sudo >/dev/null 2>&1; then
         show_error "❌ No eres root y 'sudo' no está instalado. Instálalo o ejecuta como root."
@@ -512,6 +513,7 @@ if ! curl -s --head --request GET -m 5 https://google.com >/dev/null 2>&1; then
     exit 1
 fi
 
+# Detección de OS
 if [ -f /etc/os-release ]; then
     . /etc/os-release
     OS=$ID
@@ -525,6 +527,7 @@ fi
 main() {
     show_message "Iniciando la instalación automatizada de herramientas Docker (v$SCRIPT_VERSION)..."
     
+    # 1. Crear directorio y entrar (Corregido: 'cd' después de 'mkdir -p' en el flujo)
     run_command "mkdir -p \"$DOCKER_DIR\"" "Creando directorio principal de Docker..."
     cd "$DOCKER_DIR" || { 
         show_error "No se pudo acceder al directorio $DOCKER_DIR"
@@ -557,6 +560,7 @@ SECRET_KEY=$SECRET_KEY
 EOL
     register_temp_file "$env_global_file"
 
+    # 2. Instalación
     install_dependencies
     initialize_docker_swarm
     install_server_tools
@@ -589,6 +593,7 @@ EOL
         fi
     done
 
+    # 3. Finalización
     show_success "¡Instalación completada!"
     echo ""
     echo "Accede a tus servicios en los siguientes URLs (usando HTTPS si Traefik está configurado correctamente):"
