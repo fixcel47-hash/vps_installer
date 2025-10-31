@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SCRIPT_VERSION="1.2.3"
+SCRIPT_VERSION="1.2.8"
 
 # Colores para mensajes
 RED='\033[0;31m'
@@ -17,7 +17,7 @@ INSTALLATION_ID=""
 # Comando SQL para configurar Enterprise (escapando ! y comillas)
 SQL_COMMAND_ENTERPRISE="UPDATE public.installation_configs SET serialized_value = '\"--- \!ruby/hash:ActiveSupport::HashWithIndifferentAccess\nvalue: enterprise\n\"' WHERE name = 'INSTALLATION_PRICING_PLAN'; UPDATE public.installation_configs SET serialized_value = '\"--- \!ruby/hash:ActiveSupport::HashWithIndifferentAccess\nvalue: 10000\n\"' WHERE name = 'INSTALLATION_PRICING_PLAN_QUANTITY'; UPDATE public.installation_configs SET serialized_value = '\"--- \!ruby/hash:ActiveSupport::HashWithIndifferentAccess\nvalue: e04t63ee-5gg8-4b94-8914-ed8137a7d938\n\"' WHERE name = 'INSTALLATION_IDENTIFIER';"
 
-# MAPA DE ENLACES DE DESCARGA DE GITHUB (MODIFICADO: CHATWOOT ELIMINADO)
+# MAPA DE ENLACES DE DESCARGA DE GITHUB
 declare -rA GITHUB_LINKS=(
     ["evoapi"]="https://github.com/user-attachments/files/22956481/evoapi-stack.yml"
     ["n8n"]="https://github.com/user-attachments/files/22956487/n8n-stack.yml"
@@ -148,7 +148,7 @@ collect_system_info() {
     IP_ADDRESS=$(curl -s https://api.ipify.org)
 }
 
-# Función para registrar el inicio de la instalación (CORREGIDA PARA EVITAR EL ERROR DE SINTAXIS)
+# Función para registrar el inicio de la instalación (CORREGIDA)
 register_installation_start() {
     show_message "Registrando instalación..."
     
@@ -373,43 +373,90 @@ download_from_api() {
 }
 # --------------------------------------------------
 
-# NUEVA FUNCIÓN: Para configurar el modo Enterprise en la base de datos de Chatwoot
+# FUNCIÓN CORREGIDA (v1.2.6): Para configurar el modo Enterprise en la base de datos de Chatwoot
 configure_chatwoot_enterprise() {
     local tool_name=$1
     
     show_message "Esperando a que el servicio PostgreSQL de Chatwoot esté listo para configuración Enterprise..."
     
-    # Buscamos el ID del contenedor del servicio principal
-    local container_id=$(docker ps -q --filter "label=com.docker.stack.service=${tool_name}_${tool_name}-postgres" --filter "status=running")
+    # El nombre completo del servicio en el stack es stackname_servicename (ej. chatwoot_chatwoot-postgres)
+    local full_service_name_prefix="${tool_name}_chatwoot-postgres"
     
-    local max_wait=60
+    # Tiempo de espera a 3 minutos (180 segundos) para que el contenedor esté corriendo
+    local max_wait=180 
     local count=0
+    local container_id=""
+    
+    # Bucle de espera para que el contenedor esté en estado 'running'
     while [ -z "$container_id" ] && [ $count -lt $max_wait ]; do
-        sleep 5
-        container_id=$(docker ps -q --filter "label=com.docker.stack.service=${tool_name}_${tool_name}-postgres" --filter "status=running")
-        count=$((count + 5))
-        show_message "Esperando contenedor PostgreSQL del stack $tool_name... ($count/$max_wait segundos)"
+        
+        # Buscamos el ID del contenedor usando el prefijo del nombre de la tarea Swarm.
+        container_id=$(docker ps -q --filter "name=${full_service_name_prefix}" --filter "status=running")
+        
+        if [ -z "$container_id" ]; then
+            sleep 5
+            count=$((count + 5))
+            show_message "Esperando contenedor PostgreSQL del stack $tool_name... ($count/$max_wait segundos)"
+        fi
     done
 
     if [ -z "$container_id" ]; then
-        show_error "No se pudo encontrar el contenedor de PostgreSQL para configurar Enterprise. Saltando configuración."
+        show_error "No se pudo encontrar el contenedor de PostgreSQL para configurar Enterprise después de $max_wait segundos. Saltando configuración."
         return 1
     fi
     
-    show_message "Contenedor PostgreSQL encontrado: $container_id. Forzando configuración Enterprise..."
+    show_message "Contenedor PostgreSQL encontrado: $container_id."
+
+    # --- CORRECCIÓN CLAVE (v1.2.6): Esperar a que el servicio POSTGRESQL esté listo con pg_isready ---
+    show_message "Esperando a que PostgreSQL dentro del contenedor esté disponible (pg_isready)..."
+    local pg_ready=false
+    local pg_wait_time=0
+    local max_pg_wait=120 # Esperar hasta 2 minutos adicionales
+
+    while [ $pg_wait_time -lt $max_pg_wait ] && [ "$pg_ready" = false ]; do
+        if docker exec -e PGPASSWORD="$COMMON_PASSWORD" "$container_id" pg_isready -U postgres -h localhost >/dev/null 2>&1; then
+            pg_ready=true
+            show_success "PostgreSQL dentro del contenedor está listo."
+            sleep 5 # Pequeña espera de estabilidad
+        else
+            sleep 5
+            pg_wait_time=$((pg_wait_time + 5))
+            if [ $((pg_wait_time % 30)) -eq 0 ]; then
+                show_message "Esperando PostgreSQL... ($pg_wait_time/$max_pg_wait segundos)"
+            fi
+        fi
+    done
+
+    if [ "$pg_ready" = false ]; then
+        show_error "PostgreSQL no estuvo disponible para la configuración Enterprise después de $max_pg_wait segundos. Revise los logs del contenedor."
+        return 1
+    fi
+    # --- FIN CORRECCIÓN CLAVE ---
+
+    show_message "Forzando configuración Enterprise..."
     
     # Ejecutar el SQL usando la variable global predefinida
-    if docker exec -i "$container_id" psql -U postgres -d chatwoot -c "$SQL_COMMAND_ENTERPRISE" >/dev/null 2>&1; then
+    # Se utiliza -e PGPASSWORD y -i para asegurar la autenticación y entrada estándar interactiva
+    if docker exec -i -e PGPASSWORD="$COMMON_PASSWORD" "$container_id" psql -U postgres -d chatwoot -c "$SQL_COMMAND_ENTERPRISE" >/dev/null 2>&1; then
         show_success "Configuración Enterprise forzada exitosamente en la base de datos."
+        
         # Reiniciar los servicios principales para que lean la nueva configuración
         show_message "Reiniciando servicios de Chatwoot para aplicar configuración Enterprise..."
+        
+        sleep 5 
+        
         docker service update --force ${tool_name}_rails ${tool_name}_sidekiq >/dev/null 2>&1
+        
+        show_message "Esperando a que los servicios rails y sidekiq reinicien post-update..."
+        sleep 20 
+        
         return 0
     else
-        show_error "Error al forzar la configuración Enterprise. Revise los logs."
+        show_error "Error al forzar la configuración Enterprise. Revise los logs del contenedor $container_id con 'docker logs $container_id'"
         return 1
     fi
 }
+
 
 # Función para validar el token
 validate_token() {
@@ -481,16 +528,12 @@ fi
 
 show_message "Se utilizará la siguiente clave secreta: $SECRET_KEY"
 
-# NUEVA VARIABLE PARA CHATWOOT HUB URL
-CHATWOOT_HUB_URL="CUALQUIER_URL_CON_#_AL_FINAL"
-
 # Guardar variables globales para usar en los scripts
 env_global_file="$DOCKER_DIR/.env.global"
 cat > $env_global_file << EOL
 COMMON_PASSWORD=$COMMON_PASSWORD
 BASE_DOMAIN=$BASE_DOMAIN
 SECRET_KEY=$SECRET_KEY
-CHATWOOT_HUB_URL=$CHATWOOT_HUB_URL
 EOL
 
 # Verificar e instalar dependencias
@@ -812,7 +855,8 @@ EOF
     local pg_attempt=0
 
     while [ $pg_attempt -lt $max_pg_wait ] && [ "$pg_ready" = false ]; do
-        if docker exec "$postgres_container_id" pg_isready -U postgres -h localhost >/dev/null 2>&1; then
+        # FIX: Añadir -e PGPASSWORD al pg_isready también para asegurar la conexión
+        if docker exec -e PGPASSWORD="$COMMON_PASSWORD" "$postgres_container_id" pg_isready -U postgres -h localhost >/dev/null 2>&1; then
             pg_ready=true
             show_success "PostgreSQL está listo"
             # Espera adicional para asegurar estabilidad
@@ -915,7 +959,11 @@ install_docker_tool() {
 
     # Lógica condicional para Chatwoot: CREAR el archivo directamente e inyectar CHATWOOT_HUB_URL
     if [ "$tool_name" = "chatwoot" ]; then
-        show_success "Archivo $tool_name-deploy.yml creado directamente en el script, inyectando CHATWOOT_HUB_URL"
+        
+        # *** FIX (v1.2.8): CALCULAR CHATWOOT_HUB_URL DINÁMICAMENTE ***
+        # Usa el subdominio y dominio base ingresados por el usuario
+        local DYNAMIC_CHATWOOT_HUB_URL="https://$SUBDOMAIN.$BASE_DOMAIN/app#"
+        show_success "Archivo $tool_name-deploy.yml creado directamente en el script, inyectando CHATWOOT_HUB_URL: $DYNAMIC_CHATWOOT_HUB_URL"
         
         # Crear el archivo YAML usando Heredoc
         cat > "$deploy_file" << EOF
@@ -933,7 +981,7 @@ services:
       - FRONTEND_URL=https://REPLACE_SUBDOMAIN.REPLACE_DOMAIN
       - WEBSOCKET_URL=wss://REPLACE_SUBDOMAIN.REPLACE_DOMAIN/cable
       - FORCE_SSL=true
-      - CHATWOOT_HUB_URL=$CHATWOOT_HUB_URL # <--- ¡URL INYECTADA CORRECTAMENTE!
+      - CHATWOOT_HUB_URL=$DYNAMIC_CHATWOOT_HUB_URL 
       
       # Autenticación y Registro
       - ENABLE_ACCOUNT_SIGNUP=false
@@ -951,6 +999,7 @@ services:
       # PostgreSQL
       - POSTGRES_DATABASE=chatwoot
       - POSTGRES_HOST=chatwoot-postgres
+      - POSTGRES_PORT=5432
       - POSTGRES_USERNAME=postgres
       - POSTGRES_PASSWORD=REPLACE_PASSWORD
       - POSTGRES_STATEMENT_TIMEOUT=14s
@@ -1086,7 +1135,7 @@ services:
       - FRONTEND_URL=https://REPLACE_SUBDOMAIN.REPLACE_DOMAIN
       - WEBSOCKET_URL=wss://REPLACE_SUBDOMAIN.REPLACE_DOMAIN/cable
       - FORCE_SSL=true
-      - CHATWOOT_HUB_URL=$CHATWOOT_HUB_URL # <--- ¡URL INYECTADA CORRECTAMENTE!
+      - CHATWOOT_HUB_URL=$DYNAMIC_CHATWOOT_HUB_URL 
       
       # Autenticación y Registro
       - ENABLE_ACCOUNT_SIGNUP=false
@@ -1104,6 +1153,7 @@ services:
       # PostgreSQL
       - POSTGRES_DATABASE=chatwoot
       - POSTGRES_HOST=chatwoot-postgres
+      - POSTGRES_PORT=5432
       - POSTGRES_USERNAME=postgres
       - POSTGRES_PASSWORD=REPLACE_PASSWORD
       - POSTGRES_STATEMENT_TIMEOUT=14s
