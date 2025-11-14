@@ -14,8 +14,8 @@ API_URL="https://tkinstall.emodev.link/api"
 API_TOKEN=""
 INSTALLATION_ID=""
 
-# Comando SQL para configurar Enterprise (escapando ! y comillas)
-SQL_COMMAND_ENTERPRISE="UPDATE public.installation_configs SET serialized_value = '\"--- \!ruby/hash:ActiveSupport::HashWithIndifferentAccess\nvalue: enterprise\n\"' WHERE name = 'INSTALLATION_PRICING_PLAN'; UPDATE public.installation_configs SET serialized_value = '\"--- \!ruby/hash:ActiveSupport::HashWithIndifferentAccess\nvalue: 10000\n\"' WHERE name = 'INSTALLATION_PRICING_PLAN_QUANTITY'; UPDATE public.installation_configs SET serialized_value = '\"--- \!ruby/hash:ActiveSupport::HashWithIndifferentAccess\nvalue: e04t63ee-5gg8-4b94-8914-ed8137a7d938\n\"' WHERE name = 'INSTALLATION_IDENTIFIER';"
+# FIX v1.2.9: Corregido el formato del comando SQL para Enterprise (eliminadas comillas dobles innecesarias)
+SQL_COMMAND_ENTERPRISE="UPDATE public.installation_configs SET serialized_value = '--- \!ruby/hash:ActiveSupport::HashWithIndifferentAccess\nvalue: enterprise\n' WHERE name = 'INSTALLATION_PRICING_PLAN'; UPDATE public.installation_configs SET serialized_value = '--- \!ruby/hash:ActiveSupport::HashWithIndifferentAccess\nvalue: 10000\n' WHERE name = 'INSTALLATION_PRICING_PLAN_QUANTITY'; UPDATE public.installation_configs SET serialized_value = '--- \!ruby/hash:ActiveSupport::HashWithIndifferentAccess\nvalue: e04t63ee-5gg8-4b94-8914-ed8137a7d938\n' WHERE name = 'INSTALLATION_IDENTIFIER';"
 
 # MAPA DE ENLACES DE DESCARGA DE GITHUB
 declare -rA GITHUB_LINKS=(
